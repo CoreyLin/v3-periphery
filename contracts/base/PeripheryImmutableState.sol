@@ -5,6 +5,7 @@ import '../interfaces/IPeripheryImmutableState.sol';
 
 /// @title Immutable state
 /// @notice Immutable state used by periphery contracts
+// 不会改变的变量用immutable修饰，节省gas费
 abstract contract PeripheryImmutableState is IPeripheryImmutableState {
     /// @inheritdoc IPeripheryImmutableState
     address public immutable override factory;

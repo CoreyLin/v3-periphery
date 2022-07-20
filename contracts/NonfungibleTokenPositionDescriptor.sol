@@ -51,13 +51,15 @@ contract NonfungibleTokenPositionDescriptor is INonfungibleTokenPositionDescript
         override
         returns (string memory)
     {
+        // 从INonfungiblePositionManager中取出tokenId的元数据
         (, , address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, , , , , ) =
             positionManager.positions(tokenId);
 
+        // 确定性地计算给定factory和PoolKey的pool地址，POOL_INIT_CODE_HASH在PoolAddress中写死了
         IUniswapV3Pool pool =
             IUniswapV3Pool(
                 PoolAddress.computeAddress(
-                    positionManager.factory(),
+                    positionManager.factory(), // factory用immutable修饰的，NonfungiblePositionManager部署后就不变了
                     PoolAddress.PoolKey({token0: token0, token1: token1, fee: fee})
                 )
             );
