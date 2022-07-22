@@ -45,6 +45,10 @@ contract NonfungibleTokenPositionDescriptor is INonfungibleTokenPositionDescript
     }
 
     /// @inheritdoc INonfungibleTokenPositionDescriptor
+    // 关于如何在链上用SVG+xml格式存储NFT token的image，可参考三篇文章：
+    // https://blog.cryptostars.is/how-to-build-dynamically-generating-svg-nfts-on-chain-f6a24423ea29
+    // https://andyhartnett.medium.com/solidity-tutorial-how-to-store-nft-metadata-and-svgs-on-the-blockchain-6df44314406b
+    // https://blog.simondlr.com/posts/flavours-of-on-chain-svg-nfts-on-ethereum
     function tokenURI(INonfungiblePositionManager positionManager, uint256 tokenId)
         external
         view
@@ -72,24 +76,24 @@ contract NonfungibleTokenPositionDescriptor is INonfungibleTokenPositionDescript
         return
             NFTDescriptor.constructTokenURI(
                 NFTDescriptor.ConstructTokenURIParams({
-                    tokenId: tokenId,
-                    quoteTokenAddress: quoteTokenAddress,
-                    baseTokenAddress: baseTokenAddress,
+                    tokenId: tokenId, // NFT token id
+                    quoteTokenAddress: quoteTokenAddress, // 分子token地址
+                    baseTokenAddress: baseTokenAddress, // 分母token地址
                     quoteTokenSymbol: quoteTokenAddress == WETH9
                         ? nativeCurrencyLabel()
-                        : SafeERC20Namer.tokenSymbol(quoteTokenAddress),
+                        : SafeERC20Namer.tokenSymbol(quoteTokenAddress), // 获取ERC20 token name，如果没有实现name，则返回从地址派生的名称。代码实现：https://github.com/Uniswap/solidity-lib/blob/v4.0.0-alpha/contracts/libraries/SafeERC20Namer.sol
                     baseTokenSymbol: baseTokenAddress == WETH9
                         ? nativeCurrencyLabel()
                         : SafeERC20Namer.tokenSymbol(baseTokenAddress),
-                    quoteTokenDecimals: IERC20Metadata(quoteTokenAddress).decimals(),
+                    quoteTokenDecimals: IERC20Metadata(quoteTokenAddress).decimals(), // 返回用于获取展示的小数的个数
                     baseTokenDecimals: IERC20Metadata(baseTokenAddress).decimals(),
                     flipRatio: _flipRatio,
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    tickCurrent: tick,
+                    tickLower: tickLower, // 价格下限tick
+                    tickUpper: tickUpper, // 价格上限tick
+                    tickCurrent: tick, // 当前价格tick
                     tickSpacing: pool.tickSpacing(),
-                    fee: fee,
-                    poolAddress: address(pool)
+                    fee: fee, // 手续费率
+                    poolAddress: address(pool) // 交易池地址
                 })
             );
     }
@@ -104,19 +108,19 @@ contract NonfungibleTokenPositionDescriptor is INonfungibleTokenPositionDescript
 
     function tokenRatioPriority(address token, uint256 chainId) public view returns (int256) {
         if (token == WETH9) {
-            return TokenRatioSortOrder.DENOMINATOR;
+            return TokenRatioSortOrder.DENOMINATOR; // -100
         }
         if (chainId == 1) {
             if (token == USDC) {
-                return TokenRatioSortOrder.NUMERATOR_MOST;
+                return TokenRatioSortOrder.NUMERATOR_MOST; // 300
             } else if (token == USDT) {
-                return TokenRatioSortOrder.NUMERATOR_MORE;
+                return TokenRatioSortOrder.NUMERATOR_MORE; // 200
             } else if (token == DAI) {
-                return TokenRatioSortOrder.NUMERATOR;
+                return TokenRatioSortOrder.NUMERATOR; // 100
             } else if (token == TBTC) {
-                return TokenRatioSortOrder.DENOMINATOR_MORE;
+                return TokenRatioSortOrder.DENOMINATOR_MORE; // -200
             } else if (token == WBTC) {
-                return TokenRatioSortOrder.DENOMINATOR_MOST;
+                return TokenRatioSortOrder.DENOMINATOR_MOST; // -300
             } else {
                 return 0;
             }

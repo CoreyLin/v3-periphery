@@ -41,8 +41,14 @@ library NFTDescriptor {
         address poolAddress;
     }
 
+    // ERC721 Metadata JSON Schema https://eips.ethereum.org/EIPS/eip-721
+    // 生成的token URI中，包含name,description,image。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全
     function constructTokenURI(ConstructTokenURIParams memory params) public pure returns (string memory) {
+        // 基于NFT token的信息生成name。name定义在ERC721 Metadata JSON Schema中，表示"Identifies the asset to which this NFT represents"
         string memory name = generateName(params, feeToPercentString(params.fee));
+        // 生成ERC721 metadata的description，表示"Describes the asset to which this NFT represents"
+        // 注意：之所以要分开生成partOne和partTwo，是因为如果abi.encodePacked的参数过多，会报Stack too deep的错误，参考
+        // https://ethereum.stackexchange.com/questions/120513/abi-encode-stack-too-deep
         string memory descriptionPartOne =
             generateDescriptionPartOne(
                 escapeQuotes(params.quoteTokenSymbol),
@@ -57,8 +63,15 @@ library NFTDescriptor {
                 addressToString(params.baseTokenAddress),
                 feeToPercentString(params.fee)
             );
+        // 生成NFT token的image，采用SVG格式
+        // Base64.encode出自base64-sol package，用于solidity中的base64编码，链接 https://www.npmjs.com/package/base64-sol/v/1.0.1
         string memory image = Base64.encode(bytes(generateSVGImage(params)));
 
+        // 注意，生成的token URI遵循data URI scheme，data为前缀，是application/json类型，用base64编码，参考
+        // https://en.wikipedia.org/wiki/Data_URI_scheme
+        // https://www.rfc-editor.org/rfc/rfc2397#section-2
+        // 另外，image的类型是image/svg+xml
+        // 前端javascript如何解析参考： https://stackoverflow.com/questions/65075062/data-uri-to-json-in-javascript
         return
             string(
                 abi.encodePacked(
@@ -82,26 +95,27 @@ library NFTDescriptor {
             );
     }
 
+    // 给symbol中的双引号加上\\转义
     function escapeQuotes(string memory symbol) internal pure returns (string memory) {
-        bytes memory symbolBytes = bytes(symbol);
-        uint8 quotesCount = 0;
+        bytes memory symbolBytes = bytes(symbol); // string转bytes
+        uint8 quotesCount = 0; // 双引号计数器
         for (uint8 i = 0; i < symbolBytes.length; i++) {
-            if (symbolBytes[i] == '"') {
+            if (symbolBytes[i] == '"') { // 判断字节是否是双引号
                 quotesCount++;
             }
         }
-        if (quotesCount > 0) {
-            bytes memory escapedBytes = new bytes(symbolBytes.length + (quotesCount));
-            uint256 index;
+        if (quotesCount > 0) { // 如果symbol中包含双引号
+            bytes memory escapedBytes = new bytes(symbolBytes.length + (quotesCount)); // 定义一个新的bytes，长度扩展
+            uint256 index; // 默认值为0
             for (uint8 i = 0; i < symbolBytes.length; i++) {
                 if (symbolBytes[i] == '"') {
-                    escapedBytes[index++] = '\\';
+                    escapedBytes[index++] = '\\'; // 转义。先取index值，再++
                 }
                 escapedBytes[index++] = symbolBytes[i];
             }
-            return string(escapedBytes);
+            return string(escapedBytes); // bytes转string
         }
-        return symbol;
+        return symbol; //  symbol中没有双引号，直接返回
     }
 
     function generateDescriptionPartOne(
@@ -133,6 +147,8 @@ library NFTDescriptor {
         string memory baseTokenAddress,
         string memory feeTier
     ) private pure returns (string memory) {
+        // 从solidity 0.7开始，支持unicode特殊字符
+        // 常规字符串只能包含ASCII，而Unicode文字(以关键字unicode为前缀)可以包含任何有效的UTF-8序列。
         return
             string(
                 abi.encodePacked(
@@ -403,7 +419,7 @@ library NFTDescriptor {
     }
 
     function addressToString(address addr) internal pure returns (string memory) {
-        return (uint256(addr)).toHexString(20);
+        return (uint256(addr)).toHexString(20); // 20代表字节，从最右边算起
     }
 
     function generateSVGImage(ConstructTokenURIParams memory params) internal pure returns (string memory svg) {
@@ -418,7 +434,7 @@ library NFTDescriptor {
                 tickLower: params.tickLower,
                 tickUpper: params.tickUpper,
                 tickSpacing: params.tickSpacing,
-                overRange: overRange(params.tickLower, params.tickUpper, params.tickCurrent),
+                overRange: overRange(params.tickLower, params.tickUpper, params.tickCurrent), // 当前价格是在价格区间内，还是超出了价格区间
                 tokenId: params.tokenId,
                 color0: tokenToColorHex(uint256(params.quoteTokenAddress), 136),
                 color1: tokenToColorHex(uint256(params.baseTokenAddress), 136),
