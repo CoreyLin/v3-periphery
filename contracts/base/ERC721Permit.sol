@@ -52,16 +52,17 @@ abstract contract ERC721Permit is BlockTimestamp, ERC721, IERC721Permit {
         0x49ecf333e5b8c95c40fdafc95c1ad136e8914a8fb55e9dc8bb01eaa83a2df9ad;
 
     /// @inheritdoc IERC721Permit
-    function permit(
-        address spender,
-        uint256 tokenId,
-        uint256 deadline,
+    function permit( // 批准一个特定的token ID通过签名的花费
+        address spender, // 被批准的帐户
+        uint256 tokenId, // 正在被批准用于话费的token的ID
+        uint256 deadline, // 批准生效时调用必须被挖掘的截止时间戳
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external payable override {
-        require(_blockTimestamp() <= deadline, 'Permit expired');
+        require(_blockTimestamp() <= deadline, 'Permit expired'); // 超时检查
 
+        // 计算待签名数据的哈希
         bytes32 digest =
             keccak256(
                 abi.encodePacked(
@@ -70,17 +71,18 @@ abstract contract ERC721Permit is BlockTimestamp, ERC721, IERC721Permit {
                     keccak256(abi.encode(PERMIT_TYPEHASH, spender, tokenId, _getAndIncrementNonce(tokenId), deadline))
                 )
             );
-        address owner = ownerOf(tokenId);
-        require(spender != owner, 'ERC721Permit: approval to current owner');
+        address owner = ownerOf(tokenId); // tokenId的owner
+        require(spender != owner, 'ERC721Permit: approval to current owner'); // spender不能是owner
 
-        if (Address.isContract(owner)) {
+        if (Address.isContract(owner)) { // 如果owner是一个合约
+            // 返回所提供的签名对于所提供的数据是否有效，0x1626ba7e是个特殊的值，是固定的
             require(IERC1271(owner).isValidSignature(digest, abi.encodePacked(r, s, v)) == 0x1626ba7e, 'Unauthorized');
         } else {
             address recoveredAddress = ecrecover(digest, v, r, s);
             require(recoveredAddress != address(0), 'Invalid signature');
-            require(recoveredAddress == owner, 'Unauthorized');
+            require(recoveredAddress == owner, 'Unauthorized'); // 签名者必须是NFT token的owner，owner才有权力approve
         }
 
-        _approve(spender, tokenId);
+        _approve(spender, tokenId); // 标准的ERC721接口，批准spender有权利花费owner的NFT token
     }
 }

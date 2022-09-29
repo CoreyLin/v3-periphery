@@ -21,6 +21,7 @@ import './base/PoolInitializer.sol';
 /// @title NFT positions NFT头寸
 /// @notice Wraps Uniswap V3 positions in the ERC721 non-fungible token interface 在ERC721非同质化token接口中封装Uniswap V3头寸
 // 注意继承关系，NonfungiblePositionManager的功能很丰富
+// 此合约替代用户完成提供流动性操作，然后将流动性的数据元记录下来，并给用户铸造一个 NFT Token
 contract NonfungiblePositionManager is
     INonfungiblePositionManager,
     Multicall,
@@ -35,6 +36,7 @@ contract NonfungiblePositionManager is
     // 一个position表示一个用户提供的一次流动性，是非同质化的，和V2不同。一个position对应一个ERC721 token
     struct Position {
         // the nonce for permits
+        // 每次通过离线签名进行permit，即approve，nonce就递增1
         uint96 nonce;
         // the address that is approved for spending this token 被批准可以花费这个token的地址
         address operator;
@@ -91,11 +93,12 @@ contract NonfungiblePositionManager is
     }
 
     /// @inheritdoc INonfungiblePositionManager
+    /// 返回与给定token ID关联的头寸信息。
     function positions(uint256 tokenId)
         external
         view
         override
-        returns (
+        returns ( // 注意：返回值不是一个struct，而是很多值
             uint96 nonce,
             address operator,
             address token0,
@@ -111,7 +114,7 @@ contract NonfungiblePositionManager is
         )
     {
         Position memory position = _positions[tokenId];
-        require(position.poolId != 0, 'Invalid token ID');
+        require(position.poolId != 0, 'Invalid token ID'); // 校验poolId合法性
         PoolAddress.PoolKey memory poolKey = _poolIdToPoolKey[position.poolId];
         return (
             position.nonce,
@@ -131,16 +134,17 @@ contract NonfungiblePositionManager is
 
     /// @dev Caches a pool key
     function cachePoolKey(address pool, PoolAddress.PoolKey memory poolKey) private returns (uint80 poolId) {
-        poolId = _poolIds[pool];
+        poolId = _poolIds[pool]; // pool是core pool的地址，需要为其在NonfungiblePositionManager中保存一个对应的poolId
         if (poolId == 0) { // 如果poolId还不存在，就新生成一个，且保存在状态变量中，注：poolId是递增的
-            _poolIds[pool] = (poolId = _nextPoolId++);
-            _poolIdToPoolKey[poolId] = poolKey;
+            _poolIds[pool] = (poolId = _nextPoolId++); // 1.poolId是++前的_nextPoolId 2._nextPoolId递增了 3.poolId是本地变量，节约gas费 4.新建pool合约地址到poolId的映射
+            _poolIdToPoolKey[poolId] = poolKey; // 新建poolId到poolKey的映射
         }
     }
 
     /// @inheritdoc INonfungiblePositionManager
     // 创建一个包装在一个NFT中的新position，一个position对应一个NFT。调用此方法的前提是pool已经存在并且已经初始化。
     // 交易执行时的区块时间必须小于用户指定的deadline时间
+    // mint方法和increaseLiquidity方法有一些不同，mint方法每次都会铸造一个新的NFT
     function mint(MintParams calldata params)
         external
         payable
@@ -154,13 +158,13 @@ contract NonfungiblePositionManager is
         )
     {
         IUniswapV3Pool pool;
-        // 向一个已经初始化的pool中添加流动性
+        // 向一个已经初始化的pool中添加流动性，并完成token0和token1的发送
         (liquidity, amount0, amount1, pool) = addLiquidity(
             AddLiquidityParams({
                 token0: params.token0,
                 token1: params.token1,
                 fee: params.fee,
-                recipient: address(this), // 在core pool中，所有的positions的recipient都是NonfungiblePositionManager合约
+                recipient: address(this), // 在core pool中，所有的positions的recipient都是NonfungiblePositionManager合约，由NonfungiblePositionManager合约统一管理
                 tickLower: params.tickLower,
                 tickUpper: params.tickUpper,
                 amount0Desired: params.amount0Desired,
@@ -171,13 +175,14 @@ contract NonfungiblePositionManager is
         );
 
         // 铸造一个ERC721 NFT token给用户，代表用户所持有的流动性
-        // 此合约继承了ERC721Permit，ERC721Permit又继承了openzeppelin里的ERC721，此处_mint是openzeppelin里的ERC721提供的方法
+        // 此合约继承了ERC721Permit，ERC721Permit又继承了openzeppelin里的ERC721，此处_mint是openzeppelin里的ERC721提供的方法。故NonfungiblePositionManager本身就是一个ERC721合约。
         _mint(params.recipient, (tokenId = _nextId++)); // _nextId先赋值再++
 
         // 计算在pool中position的hash值，keccak256(abi.encodePacked(owner, tickLower, tickUpper)
-        // pool中所有position的owner都是NonfungiblePositionManager合约，NonfungiblePositionManager通过NFT token把position和用户关联起来
+        // pool中所有position的owner都是NonfungiblePositionManager合约，而非用户本人，所以NonfungiblePositionManager通过NFT token把position和用户关联起来
         // pool中所有position是以owner,tickLower,tickUpper作为键来存储的，owner又统一是NonfungiblePositionManager合约，这意味着
         // 当多个用户在同一个价格区间提供流动性时，在底层的UniswapV3Pool合约中会将他们合并存储。而在NonfungiblePositionManager合约中会按用户来区别每个用户拥有的Position。
+        // 也就是说，pool合约里面并不会记录每个用户拥有的position，而是通过NonfungiblePositionManager合约来记录
         bytes32 positionKey = PositionKey.compute(address(this), params.tickLower, params.tickUpper);
         // feeGrowth代表了每单位虚拟流动性所赚取的手续费总额
         // 此处逻辑尤其值得注意，由于core pool中的一个position有可能是多个用户的同一个价格范围position的聚合，而NonfungiblePositionManager中一个position就是指一个用户独一无二的一个position，
@@ -185,10 +190,12 @@ contract NonfungiblePositionManager is
         // 1.如果相同价格范围的position之前从没有被mint过，那么意味着是第一次在core pool里创建这个价格范围的position，feeGrowth一定是0
         // 2.如果之前已经有用户mint过相同价格范围的position，那么意味着可能已经有了swap交易，已经积累了一些手续费，那么feeGrowth就大于0,但这些手续费不是当前用户本次mint的position所赚取的，
         // 所以需要把feeGrowth作为本次mint的position的元数据记录下来，作为一个计算手续费的基准线，为当前position以后计算手续费打下基础
-        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(positionKey);
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(positionKey); // 返回之前每单位虚拟流动性已经积累的手续费，这些手续费不是本次将要mint的position赚取的
 
         // idempotent set
         // 如果poolId还不存在，就新生成一个，且保存在状态变量中，注：poolId是递增的。如果poolId已经存在，就忽略。
+        // 这一步完成后，pool合约地址到poolId的映射，以及poolId到poolKey的映射就都有了
+        // poolId只存在于NonfungiblePositionManager中
         uint80 poolId =
             cachePoolKey(
                 address(pool),
@@ -196,6 +203,7 @@ contract NonfungiblePositionManager is
             );
 
         // 用ERC721的token ID作为键，将用户提供流动性的元信息保存起来
+        // 注意：NFT除了铸造了一个ERC721 token外，最重要的就是这个position信息了，一个tokenId和一个position信息一一对应
         _positions[tokenId] = Position({
             nonce: 0,
             operator: address(0), // 被批准可以花费这个NFT token的地址，设置为0地址，即默认没有任何人能够花费这个NFT token
@@ -203,7 +211,7 @@ contract NonfungiblePositionManager is
             tickLower: params.tickLower,
             tickUpper: params.tickUpper,
             liquidity: liquidity, // 在core pool中添加流动性后返回的值，由core pool计算而得
-            feeGrowthInside0LastX128: feeGrowthInside0LastX128, // 把core pool中的feeGrowthInside0LastX128同步更新到此合约
+            feeGrowthInside0LastX128: feeGrowthInside0LastX128, // 把core pool中的feeGrowthInside0LastX128同步更新到此合约。截至到上次对单独的头寸做操作，累计头寸的手续费增长
             feeGrowthInside1LastX128: feeGrowthInside1LastX128,
             tokensOwed0: 0, // mint一个新的position，还没有开始赚取手续费，所以tokensOwed0和tokensOwed1都为0
             tokensOwed1: 0
@@ -219,6 +227,7 @@ contract NonfungiblePositionManager is
         _;
     }
 
+    // 生成描述一个position manager的特定token ID的URI,这个URI可以是直接内联JSON内容的data,符合ERC721的元数据
     function tokenURI(uint256 tokenId) public view override(ERC721, IERC721Metadata) returns (string memory) {
         require(_exists(tokenId)); // openzeppelin里的ERC721提供的方法
         return INonfungibleTokenPositionDescriptor(_tokenDescriptor).tokenURI(this, tokenId); // this指当前的合约对象，INonfungibleTokenPositionDescriptor.tokenURI通过INonfungiblePositionManager接口接收此参数
@@ -230,6 +239,7 @@ contract NonfungiblePositionManager is
 
     /// @inheritdoc INonfungiblePositionManager
     // 此方法和mint方法很类似，mint方法实现初始流动性的添加，即创建一个新的position，而increaseLiquidity方法实现了对已存在的一个position的流动性的增加
+    // IncreaseLiquidityParams用tokenId取代了MintParams中的token0,token1,fee,tickLower,tickUpper,recipient。tokenId就是第一次添加流动性时已经铸造的NFT id
     function increaseLiquidity(IncreaseLiquidityParams calldata params)
         external
         payable
@@ -248,7 +258,7 @@ contract NonfungiblePositionManager is
         PoolAddress.PoolKey memory poolKey = _poolIdToPoolKey[position.poolId];
 
         IUniswapV3Pool pool;
-        // 向一个已经初始化的pool中添加流动性
+        // 向一个已经初始化的pool中添加流动性，在mint方法中也是调用的addLiquidity，因为对于core pool来说都是添加流动性
         (liquidity, amount0, amount1, pool) = addLiquidity(
             AddLiquidityParams({
                 token0: poolKey.token0,
@@ -264,7 +274,7 @@ contract NonfungiblePositionManager is
             })
         );
 
-        bytes32 positionKey = PositionKey.compute(address(this), position.tickLower, position.tickUpper);
+        bytes32 positionKey = PositionKey.compute(address(this), position.tickLower, position.tickUpper); // 返回core library中position的键，用来定位一个position
 
         // this is now updated to the current transaction
         // feeGrowth代表了每单位虚拟流动性所赚取的手续费总额。
@@ -276,14 +286,14 @@ contract NonfungiblePositionManager is
 
         // 如果core pool中最新的feeGrowth大于NonfungiblePositionManager合约中此position的feeGrowth，意味着此position在core pool中从swap交易中赚取了交易费，
         // 既然赚取了新的交易费，就应该在NonfungiblePositionManager合约中记账，添加到当前position已赚取的交易费中，交易费以token0,token1体现。
-        position.tokensOwed0 += uint128(
+        position.tokensOwed0 += uint128( // 把过去一段时间赚取的交易费添加到tokensOwed0中
             FullMath.mulDiv(
                 feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
                 position.liquidity, // 用更新前的position流动性参与计算，因为feeGrowth针对的是在本次增加流动性操作之前已经赚取的手续费
                 FixedPoint128.Q128
             )
         );
-        position.tokensOwed1 += uint128(
+        position.tokensOwed1 += uint128( // 把过去一段时间赚取的交易费添加到tokensOwed1中
             FullMath.mulDiv(
                 feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128,
                 position.liquidity,
@@ -291,9 +301,10 @@ contract NonfungiblePositionManager is
             )
         );
 
-        position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+        position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128; // 更新feeGrowthInside0LastX128，feeGrowthInside0LastX128变大了
         position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
         position.liquidity += liquidity; // 修改position.liquidity必须发生在通过feeGrowth计算tokensOwed之后
+        // 以上，实际上更新了NonfungiblePositionManager中该position的tokensOwed0,tokensOwed1,feeGrowthInside0LastX128,feeGrowthInside1LastX128,liquidity
 
         emit IncreaseLiquidity(params.tokenId, liquidity, amount0, amount1);
     }
@@ -385,7 +396,7 @@ contract NonfungiblePositionManager is
                 pool.positions(PositionKey.compute(address(this), position.tickLower, position.tickUpper));
 
             tokensOwed0 += uint128(
-                FullMath.mulDiv(
+                FullMath.mulDiv( // 一个二进制定点数乘以十进制数之后，除以定点数1，得到一个十进制数
                     feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
                     position.liquidity,
                     FixedPoint128.Q128

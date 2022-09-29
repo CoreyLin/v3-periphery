@@ -7,6 +7,7 @@ import './PoolAddress.sol';
 /// @notice Provides validation for callbacks from Uniswap V3 Pools
 library CallbackValidation {
     /// @notice Returns the address of a valid Uniswap V3 Pool
+    /// 返回有效的Uniswap V3池的地址
     /// @param factory The contract address of the Uniswap V3 factory
     /// @param tokenA The contract address of either token0 or token1
     /// @param tokenB The contract address of the other token
@@ -22,6 +23,7 @@ library CallbackValidation {
     }
 
     /// @notice Returns the address of a valid Uniswap V3 Pool
+    /// 返回有效的Uniswap V3池的地址
     /// @param factory The contract address of the Uniswap V3 factory
     /// @param poolKey The identifying key of the V3 pool
     /// @return pool The V3 pool contract address
@@ -31,6 +33,6 @@ library CallbackValidation {
         returns (IUniswapV3Pool pool)
     {
         pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
-        require(msg.sender == address(pool));
+        require(msg.sender == address(pool)); // 调用此方法的必须是pool合约
     }
 }

@@ -35,11 +35,13 @@ contract SwapRouter is
     uint256 private constant DEFAULT_AMOUNT_IN_CACHED = type(uint256).max;
 
     /// @dev Transient storage variable used for returning the computed amount in for an exact output swap.
+    /// 用于返回精确输出交换的计算的amount in的瞬态状态变量。
     uint256 private amountInCached = DEFAULT_AMOUNT_IN_CACHED;
 
     constructor(address _factory, address _WETH9) PeripheryImmutableState(_factory, _WETH9) {}
 
     /// @dev Returns the pool for the given token pair and fee. The pool contract may or may not exist.
+    // 返回给定token对和fee对应的池。池合约可能存在，也可能不存在。
     function getPool(
         address tokenA,
         address tokenB,
@@ -49,8 +51,8 @@ contract SwapRouter is
     }
 
     struct SwapCallbackData {
-        bytes path;
-        address payer;
+        bytes path; // token路径
+        address payer; // 付款方
     }
 
     /// @inheritdoc IUniswapV3SwapCallback
@@ -59,31 +61,35 @@ contract SwapRouter is
         int256 amount1Delta,
         bytes calldata _data
     ) external override {
-        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
+        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported 完全在零流动性区域内的swap不受支持
         SwapCallbackData memory data = abi.decode(_data, (SwapCallbackData));
         (address tokenIn, address tokenOut, uint24 fee) = data.path.decodeFirstPool();
-        CallbackValidation.verifyCallback(factory, tokenIn, tokenOut, fee);
+        CallbackValidation.verifyCallback(factory, tokenIn, tokenOut, fee); // 校验并返回有效的Uniswap V3池的地址，此处没有使用返回值，只做了校验
 
         (bool isExactInput, uint256 amountToPay) =
-            amount0Delta > 0
+            amount0Delta > 0 // 是否用token0换token1
+                // 如果tokenIn是token0，则说明token0换token1，amount0Delta大于0,则说明是isExactInput；如果tokenIn是token1，则说明token1换token0
                 ? (tokenIn < tokenOut, uint256(amount0Delta))
+                // amount1Delta > 1. 如果tokenIn是token1，则说明token1换token0，amount1Delta大于0,则说明是isExactInput；如果tokenIn是token0，则说明token0换token1
                 : (tokenOut < tokenIn, uint256(amount1Delta));
         if (isExactInput) {
-            pay(tokenIn, data.payer, msg.sender, amountToPay);
-        } else {
+            pay(tokenIn, data.payer, msg.sender, amountToPay); // 从payer转账给pool合约
+        } else { // isExactInput为false，场景比如token1换token0, tokenIn是token1, 但amountToPay是amount0Delta，是token0
             // either initiate the next swap or pay
-            if (data.path.hasMultiplePools()) {
-                data.path = data.path.skipToken();
-                exactOutputInternal(amountToPay, msg.sender, 0, data);
-            } else {
-                amountInCached = amountToPay;
-                tokenIn = tokenOut; // swap in/out because exact output swaps are reversed
-                pay(tokenIn, data.payer, msg.sender, amountToPay);
+            if (data.path.hasMultiplePools()) { // 如果是多跳swap
+                data.path = data.path.skipToken(); // 跳过缓冲区中的一个token + fee元素并返回剩余的路径
+                exactOutputInternal(amountToPay, msg.sender, 0, data); // 第一个参数是amountOut，场景比如token1换token0, tokenIn是token1, 但amountToPay是amount0Delta，是token0，则必须换取amountToPay数量的amount0
+            } else { // 不是isExactInput，且非多跳swap
+                amountInCached = amountToPay; // amountInCached是用于返回精确输出交换的计算的amount in的瞬态状态变量。
+                // 场景比如token1换token0, tokenIn是token1，现在变成了tokenIn是token0，amountToPay是amount0Delta，是token0
+                tokenIn = tokenOut; // swap in/out because exact output swaps are reversed 在pool swap中，对于exact output swap，对in/out进行了反转，所以这里需要反转回来
+                pay(tokenIn, data.payer, msg.sender, amountToPay); // 接上述场景，payer向pool转amount0Delta数量的token0，tokenIn是token0
             }
         }
     }
 
     /// @dev Performs a single exact input swap
+    /// 执行一次exact input swap
     function exactInputInternal(
         uint256 amountIn,
         address recipient,
@@ -91,27 +97,31 @@ contract SwapRouter is
         SwapCallbackData memory data
     ) private returns (uint256 amountOut) {
         // allow swapping to the router address with address 0
-        if (recipient == address(0)) recipient = address(this);
+        if (recipient == address(0)) recipient = address(this); // 如果recipient为0地址，把其改为router合约地址，即router合约收款
 
-        (address tokenIn, address tokenOut, uint24 fee) = data.path.decodeFirstPool();
+        // 这里的path是路径中第一个池对应的segment，即一个token地址+fee+另一个token地址
+        (address tokenIn, address tokenOut, uint24 fee) = data.path.decodeFirstPool(); // 解码路径中的第一个池
 
-        bool zeroForOne = tokenIn < tokenOut;
+        bool zeroForOne = tokenIn < tokenOut; // 如果tokenIn小于tokenOut，则是用token0换取token1
 
         (int256 amount0, int256 amount1) =
-            getPool(tokenIn, tokenOut, fee).swap(
+            getPool(tokenIn, tokenOut, fee).swap( // 返回给定token对和fee对应的池。池合约可能存在，也可能不存在。然后调用pool的swap方法
                 recipient,
-                zeroForOne,
-                amountIn.toInt256(),
+                zeroForOne, // 是否是用token0换取token1
+                amountIn.toInt256(), // SafeCast中的toInt256
                 sqrtPriceLimitX96 == 0
-                    ? (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1)
+                    ? (zeroForOne ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1) // 如果用户没有指定价格限制，则根据交换方向，取tick的最小值或者最大值
                     : sqrtPriceLimitX96,
-                abi.encode(data)
+                abi.encode(data) // struct编码为bytes
             );
+        // 以上pool swap方法在pool改变了很多状态变量，但并没有传导到periphery NonFungiblePositionManager中，LP NFT的属性值现在并没有变化
 
+        // 1.根据交换方向确定是返回amount1还是amount0 2.pool.swap返回的是负数，所以需要加个负号转为正数，然后再转为uint256
         return uint256(-(zeroForOne ? amount1 : amount0));
     }
 
     /// @inheritdoc ISwapRouter
+    // 将一种token的amountIn交换为尽可能多的另一种token。重点：不是多跳交换。
     function exactInputSingle(ExactInputSingleParams calldata params)
         external
         payable
@@ -129,6 +139,7 @@ contract SwapRouter is
     }
 
     /// @inheritdoc ISwapRouter
+    /// 沿着指定的路径，将一种token的amountIn尽可能多地交换为另一种token
     function exactInput(ExactInputParams memory params)
         external
         payable
@@ -136,28 +147,30 @@ contract SwapRouter is
         checkDeadline(params.deadline)
         returns (uint256 amountOut)
     {
-        address payer = msg.sender; // msg.sender pays for the first hop
+        address payer = msg.sender; // msg.sender pays for the first hop msg.sender需要首先付款
 
-        while (true) {
-            bool hasMultiplePools = params.path.hasMultiplePools();
+        while (true) { // 通过循环，遍历传入的路径，进行交易
+            bool hasMultiplePools = params.path.hasMultiplePools(); // 如果路径包含两个或更多的池，则返回true，这就涉及多跳swap。注意：此语句放在while循环内，而非循环外，因为path每次交换后会截短，就需要重新判断是否是多跳交换
 
             // the outputs of prior swaps become the inputs to subsequent ones
+            // 前一个交换的输出成为后一个交换的输入
             params.amountIn = exactInputInternal(
                 params.amountIn,
-                hasMultiplePools ? address(this) : params.recipient, // for intermediate swaps, this contract custodies
-                0,
-                SwapCallbackData({
-                    path: params.path.getFirstPool(), // only the first pool in the path is necessary
+                hasMultiplePools ? address(this) : params.recipient, // for intermediate swaps, this contract custodies 对于中间交换，该合约负责保管。即如果是中间交易，由合约代为收取和支付中间代币
+                0, // 重点：此处固定传0，也就是说用户没有指定价格限制，则根据交换方向，取tick的最小值或者最大值
+                SwapCallbackData({ // 给回调函数用的参数
+                    path: params.path.getFirstPool(), // only the first pool in the path is necessary 获取与路径中第一个池对应的segment，即一个token地址+fee+另一个token地址
                     payer: payer
                 })
             );
 
             // decide whether to continue or terminate
-            if (hasMultiplePools) {
-                payer = address(this); // at this point, the caller has paid
-                params.path = params.path.skipToken();
-            } else {
-                amountOut = params.amountIn;
+            // 决定是继续还是终止
+            if (hasMultiplePools) { // 如果是多跳交换
+                payer = address(this); // at this point, the caller has paid 目前caller已经支付了，且recipient是router合约，即router合约已经收到了换来的token
+                params.path = params.path.skipToken(); // 跳过缓冲区中的一个token + fee元素并返回剩余的
+            } else { // 非多跳交换
+                amountOut = params.amountIn; // 返回值
                 break;
             }
         }

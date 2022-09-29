@@ -55,16 +55,17 @@ abstract contract PeripheryPayments is IPeripheryPayments, PeripheryImmutableSta
         address recipient,
         uint256 value
     ) internal {
-        if (token == WETH9 && address(this).balance >= value) {
+        if (token == WETH9 && address(this).balance >= value) { // token是WETH9合约，且本合约的ETH余额大于等于value，即余额足够
             // pay with WETH9
-            IWETH9(WETH9).deposit{value: value}(); // wrap only what is needed to pay
-            IWETH9(WETH9).transfer(recipient, value);
-        } else if (payer == address(this)) {
+            IWETH9(WETH9).deposit{value: value}(); // wrap only what is needed to pay 本合约向WETH9合约中存入ETH，得到WETH token
+            IWETH9(WETH9).transfer(recipient, value); // 本合约把自己拥有的WETH token转给pool合约，pool合约得到的是WETH，而不是ETH
+        } else if (payer == address(this)) { // 如果payer不是trader，而是本合约
             // pay with tokens already in the contract (for the exact input multihop case)
-            TransferHelper.safeTransfer(token, recipient, value);
+            // 用合约中已经存在的token支付(对于确切的输入多跳情况)
+            TransferHelper.safeTransfer(token, recipient, value); // 本合约转账给pool
         } else {
             // pull payment
-            TransferHelper.safeTransferFrom(token, payer, recipient, value);
+            TransferHelper.safeTransferFrom(token, payer, recipient, value); // 从payer转账给pool
         }
     }
 }

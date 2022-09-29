@@ -47,12 +47,13 @@ library LiquidityAmounts {
 
     /// @notice Computes the maximum amount of liquidity received for a given amount of token0, token1, the current
     /// pool prices and the prices at the tick boundaries
-    /// @param sqrtRatioX96 A sqrt price representing the current pool prices
-    /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary
-    /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary
-    /// @param amount0 The amount of token0 being sent in
-    /// @param amount1 The amount of token1 being sent in
-    /// @return liquidity The maximum amount of liquidity received
+    /// 计算给定数量的token0、token1、当前池价格和tick边界价格所收到的最大流动性
+    /// @param sqrtRatioX96 A sqrt price representing the current pool prices 表示当前池价格的根号价格
+    /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary 表示第一个tick边界的根号价格
+    /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary 表示第二个tick边界的根号价格
+    /// @param amount0 The amount of token0 being sent in 发送的token0的数量
+    /// @param amount1 The amount of token1 being sent in 发送的token1的数量
+    /// @return liquidity The maximum amount of liquidity received 收到的最大流动性数量
     function getLiquidityForAmounts(
         uint160 sqrtRatioX96,
         uint160 sqrtRatioAX96,
@@ -60,16 +61,17 @@ library LiquidityAmounts {
         uint256 amount0,
         uint256 amount1
     ) internal pure returns (uint128 liquidity) {
+        // 确保sqrtRatioAX96小于sqrtRatioBX96，即sqrtRatioAX96是价格下限，sqrtRatioBX96是价格上限
         if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
 
-        if (sqrtRatioX96 <= sqrtRatioAX96) {
+        if (sqrtRatioX96 <= sqrtRatioAX96) { // 池子的当前价格小于价格下限
             liquidity = getLiquidityForAmount0(sqrtRatioAX96, sqrtRatioBX96, amount0);
-        } else if (sqrtRatioX96 < sqrtRatioBX96) {
+        } else if (sqrtRatioX96 < sqrtRatioBX96) { // 池子的当前价格位于价格下限和价格上限之间
             uint128 liquidity0 = getLiquidityForAmount0(sqrtRatioX96, sqrtRatioBX96, amount0);
             uint128 liquidity1 = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioX96, amount1);
 
-            liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
-        } else {
+            liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1; // 取小的那个
+        } else { // 池子的当前价格大于价格上限
             liquidity = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, amount1);
         }
     }
@@ -88,7 +90,7 @@ library LiquidityAmounts {
 
         return
             FullMath.mulDiv(
-                uint256(liquidity) << FixedPoint96.RESOLUTION,
+                uint256(liquidity) << FixedPoint96.RESOLUTION, // FixedPoint96.RESOLUTION就是96
                 sqrtRatioBX96 - sqrtRatioAX96,
                 sqrtRatioBX96
             ) / sqrtRatioAX96;

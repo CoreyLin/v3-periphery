@@ -8,32 +8,36 @@ import '@uniswap/v3-core/contracts/interfaces/callback/IUniswapV3SwapCallback.so
 /// @notice Functions for swapping tokens via Uniswap V3
 interface ISwapRouter is IUniswapV3SwapCallback {
     struct ExactInputSingleParams {
-        address tokenIn;
+        address tokenIn; // 注意和ExactInputParams的区别，不用传入path，因为不是多跳交换
         address tokenOut;
-        uint24 fee;
+        uint24 fee; // 对于ExactInputParams来说，fee是包含在path里的
         address recipient;
         uint256 deadline;
         uint256 amountIn;
         uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
+        uint160 sqrtPriceLimitX96; // 指定价格限制，不过可以传0，代表不指定价格限制
     }
 
     /// @notice Swaps `amountIn` of one token for as much as possible of another token
+    /// 将一种token的amountIn交换为尽可能多的另一种token
     /// @param params The parameters necessary for the swap, encoded as `ExactInputSingleParams` in calldata
     /// @return amountOut The amount of the received token
     function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
 
     struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
+        bytes path; // 路径，注意，是bytes类型
+        address recipient; // 收款地址
+        uint256 deadline; // 交易有效期
+        uint256 amountIn; // 输入的 token 数（输入的 token 地址就是 path 中的第一个地址）
+        uint256 amountOutMinimum; // 预期交易最少获得的 token 数（获得的 token 地址就是 path 中最后一个地址）
     }
 
     /// @notice Swaps `amountIn` of one token for as much as possible of another along the specified path
+    /// 沿着指定的路径，将一种token的amountIn尽可能多地交换为另一种token
     /// @param params The parameters necessary for the multi-hop swap, encoded as `ExactInputParams` in calldata
+    /// 多跳交换所需的参数，在calldata中编码为ExactInputParams
     /// @return amountOut The amount of the received token
+    /// 接收到的token的数量
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
 
     struct ExactOutputSingleParams {

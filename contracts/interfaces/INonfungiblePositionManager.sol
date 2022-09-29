@@ -44,20 +44,24 @@ interface INonfungiblePositionManager is
     event Collect(uint256 indexed tokenId, address recipient, uint256 amount0, uint256 amount1);
 
     /// @notice Returns the position information associated with a given token ID.
-    /// @dev Throws if the token ID is not valid.
+    /// 返回与给定token ID关联的头寸信息。
+    /// @dev Throws if the token ID is not valid. 如果token ID不存在就报错
     /// @param tokenId The ID of the token that represents the position
-    /// @return nonce The nonce for permits
-    /// @return operator The address that is approved for spending
+    /// 表示头寸的token ID
+    /// @return nonce The nonce for permits 该NFT token被permit的次数
+    /// @return operator The address that is approved for spending 被批准用于花费此NFT token的地址
     /// @return token0 The address of the token0 for a specific pool
     /// @return token1 The address of the token1 for a specific pool
     /// @return fee The fee associated with the pool
     /// @return tickLower The lower end of the tick range for the position
     /// @return tickUpper The higher end of the tick range for the position
-    /// @return liquidity The liquidity of the position
-    /// @return feeGrowthInside0LastX128 The fee growth of token0 as of the last action on the individual position
-    /// @return feeGrowthInside1LastX128 The fee growth of token1 as of the last action on the individual position
+    /// @return liquidity The liquidity of the position 该头寸对应/拥有的流动性
+    /// @return feeGrowthInside0LastX128 The fee growth of token0 as of the last action on the individual position token0的费用增长到最后一次操作
+    /// @return feeGrowthInside1LastX128 The fee growth of token1 as of the last action on the individual position token1的费用增长到最后一次操作
     /// @return tokensOwed0 The uncollected amount of token0 owed to the position as of the last computation
+    /// 截至最后一次计算时欠头寸的token0的未收集量
     /// @return tokensOwed1 The uncollected amount of token1 owed to the position as of the last computation
+    /// 截至最后一次计算时欠头寸的token1的未收集量
     function positions(uint256 tokenId)
         external
         view
@@ -76,17 +80,18 @@ interface INonfungiblePositionManager is
             uint128 tokensOwed1
         );
 
-    struct MintParams {
+    struct MintParams { // 添加流动性并铸造NFT的参数
         address token0;
         address token1;
-        uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
+        uint24 fee; // 交易费率
+        // 传入的 lower/upper 价格是以 tick index 来表示的，因此需要在链下先计算好价格所对应的 tick index
+        int24 tickLower; // 流动性的价格下限（以 token0 计价），这里传入的是 tick index
+        int24 tickUpper; // 流动性的价格上线（以 token0 计价），这里传入的是 tick index
         uint256 amount0Desired;
         uint256 amount1Desired;
         uint256 amount0Min;
         uint256 amount1Min;
-        address recipient;
+        address recipient; // 谁将获取NFT token
         uint256 deadline;
     }
 

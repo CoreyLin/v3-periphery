@@ -2,6 +2,7 @@
 pragma solidity >=0.7.0;
 
 /// @title Function for getting the current chain ID
+/// 获取当前chain ID的函数
 library ChainId {
     /// @dev Gets the current chain ID
     /// @return chainId The current chain ID

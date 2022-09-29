@@ -9,7 +9,7 @@
 pragma solidity >=0.5.0 <0.8.0;
 
 library BytesLib {
-    function slice(
+    function slice( // 此方法很有用，对bytes根据起始点和长度进行切片
         bytes memory _bytes,
         uint256 _start,
         uint256 _length
@@ -75,25 +75,27 @@ library BytesLib {
         return tempBytes;
     }
 
+    // bytes在指定的位置开始把20个字节转为address
     function toAddress(bytes memory _bytes, uint256 _start) internal pure returns (address) {
-        require(_start + 20 >= _start, 'toAddress_overflow');
-        require(_bytes.length >= _start + 20, 'toAddress_outOfBounds');
+        require(_start + 20 >= _start, 'toAddress_overflow'); // 安全防范，防止_start太大，加了20之后超过了uint256的最大值，溢出了
+        require(_bytes.length >= _start + 20, 'toAddress_outOfBounds'); // 确保从_start开始至少有20个字节
         address tempAddress;
 
         assembly {
-            tempAddress := div(mload(add(add(_bytes, 0x20), _start)), 0x1000000000000000000000000)
+            tempAddress := div(mload(add(add(_bytes, 0x20), _start)), 0x1000000000000000000000000)//TODO 空了研究
         }
 
         return tempAddress;
     }
 
+    // bytes在指定的位置开始把三个字节转为uint24
     function toUint24(bytes memory _bytes, uint256 _start) internal pure returns (uint24) {
-        require(_start + 3 >= _start, 'toUint24_overflow');
-        require(_bytes.length >= _start + 3, 'toUint24_outOfBounds');
+        require(_start + 3 >= _start, 'toUint24_overflow'); // 安全防范，防止_start太大，加了20之后超过了uint256的最大值，溢出了
+        require(_bytes.length >= _start + 3, 'toUint24_outOfBounds'); // 确保从_start开始至少有3个字节
         uint24 tempUint;
 
         assembly {
-            tempUint := mload(add(add(_bytes, 0x3), _start))
+            tempUint := mload(add(add(_bytes, 0x3), _start))//TODO 空了研究
         }
 
         return tempUint;

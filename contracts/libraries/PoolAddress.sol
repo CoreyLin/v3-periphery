@@ -6,6 +6,7 @@ library PoolAddress {
     bytes32 internal constant POOL_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
 
     /// @notice The identifying key of the pool
+    /// 池的识别键
     struct PoolKey {
         address token0;
         address token1;
@@ -27,7 +28,8 @@ library PoolAddress {
     }
 
     /// @notice Deterministically computes the pool address given the factory and PoolKey
-    /// @param factory The Uniswap V3 factory contract address
+    /// 确定地计算给定工厂和PoolKey的池地址
+    /// @param factory The Uniswap V3 factory contract address 工厂合约地址
     /// @param key The PoolKey
     /// @return pool The contract address of the V3 pool
     function computeAddress(address factory, PoolKey memory key) internal pure returns (address pool) {
@@ -38,7 +40,7 @@ library PoolAddress {
                     abi.encodePacked(
                         hex'ff',
                         factory,
-                        keccak256(abi.encode(key.token0, key.token1, key.fee)),
+                        keccak256(abi.encode(key.token0, key.token1, key.fee)), // 部署pool时传的salt
                         POOL_INIT_CODE_HASH
                     )
                 )

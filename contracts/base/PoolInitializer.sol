@@ -29,7 +29,7 @@ abstract contract PoolInitializer is IPoolInitializer, PeripheryImmutableState {
             IUniswapV3Pool(pool).initialize(sqrtPriceX96); // 初始化pool，主要是初始化价格和tick
         } else { // pool已经存在
             (uint160 sqrtPriceX96Existing, , , , , , ) = IUniswapV3Pool(pool).slot0();
-            if (sqrtPriceX96Existing == 0) {
+            if (sqrtPriceX96Existing == 0) { // 说明还未初始化价格
                 IUniswapV3Pool(pool).initialize(sqrtPriceX96); // 如果当前价格为0，重新初始化价格
             }
         }

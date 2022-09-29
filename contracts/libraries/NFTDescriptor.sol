@@ -32,25 +32,26 @@ library NFTDescriptor {
         string baseTokenSymbol;
         uint8 quoteTokenDecimals;
         uint8 baseTokenDecimals;
-        bool flipRatio;
+        bool flipRatio; // 是否进行价格翻转
         int24 tickLower;
         int24 tickUpper;
-        int24 tickCurrent;
+        int24 tickCurrent; // 当前tick
         int24 tickSpacing;
-        uint24 fee;
-        address poolAddress;
+        uint24 fee; // 费率模式
+        address poolAddress; // core pool地址
     }
 
     // ERC721 Metadata JSON Schema https://eips.ethereum.org/EIPS/eip-721
-    // 生成的token URI中，包含name,description,image。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全
+    // 生成的token URI中，包含name,description,image。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全和去中心化，大家才信任
     function constructTokenURI(ConstructTokenURIParams memory params) public pure returns (string memory) {
         // 基于NFT token的信息生成name。name定义在ERC721 Metadata JSON Schema中，表示"Identifies the asset to which this NFT represents"
+        // 生成ERC721 NFT token的name，包含5个内容：feeTier,quoteTokenSymbol,baseTokenSymbol,头寸价格下限，头寸价格上限
         string memory name = generateName(params, feeToPercentString(params.fee));
         // 生成ERC721 metadata的description，表示"Describes the asset to which this NFT represents"
         // 注意：之所以要分开生成partOne和partTwo，是因为如果abi.encodePacked的参数过多，会报Stack too deep的错误，参考
         // https://ethereum.stackexchange.com/questions/120513/abi-encode-stack-too-deep
         string memory descriptionPartOne =
-            generateDescriptionPartOne(
+            generateDescriptionPartOne(//TODO
                 escapeQuotes(params.quoteTokenSymbol),
                 escapeQuotes(params.baseTokenSymbol),
                 addressToString(params.poolAddress)
@@ -168,6 +169,7 @@ library NFTDescriptor {
             );
     }
 
+    // 生成ERC721 NFT token的name，包含5个内容：feeTier,quoteTokenSymbol,baseTokenSymbol,头寸价格下限，头寸价格上限
     function generateName(ConstructTokenURIParams memory params, string memory feeTier)
         private
         pure
@@ -175,29 +177,29 @@ library NFTDescriptor {
     {
         return
             string(
-                abi.encodePacked(
+                abi.encodePacked( // 未填充，紧凑
                     'Uniswap - ',
                     feeTier,
                     ' - ',
-                    escapeQuotes(params.quoteTokenSymbol),
+                    escapeQuotes(params.quoteTokenSymbol), // 给symbol中的双引号加上\\转义
                     '/',
                     escapeQuotes(params.baseTokenSymbol),
                     ' - ',
-                    tickToDecimalString(
-                        !params.flipRatio ? params.tickLower : params.tickUpper,
+                    tickToDecimalString( // 把tick转换为带小数的价格字符串，比如81.000,121.00,12100,1210000
+                        !params.flipRatio ? params.tickLower : params.tickUpper, // 如果价格不翻转，就取tickLower
                         params.tickSpacing,
                         params.baseTokenDecimals,
                         params.quoteTokenDecimals,
                         params.flipRatio
-                    ),
+                    ), // 此处得到价格下限的字符串表示。即使价格翻转，传的tickUpper进去，也会取倒数，所以得到的也是价格下限。
                     '<>',
                     tickToDecimalString(
-                        !params.flipRatio ? params.tickUpper : params.tickLower,
+                        !params.flipRatio ? params.tickUpper : params.tickLower, // 如果价格不翻转，就取tickUpper
                         params.tickSpacing,
                         params.baseTokenDecimals,
                         params.quoteTokenDecimals,
                         params.flipRatio
-                    )
+                    ) // 此处得到价格上限的字符串表示。
                 )
             );
     }
@@ -246,6 +248,7 @@ library NFTDescriptor {
         return string(buffer);
     }
 
+    // 把tick转换为带小数的价格字符串，比如81.000,121.00,12100,1210000
     function tickToDecimalString(
         int24 tick,
         int24 tickSpacing,
@@ -254,14 +257,15 @@ library NFTDescriptor {
         bool flipRatio
     ) internal pure returns (string memory) {
         if (tick == (TickMath.MIN_TICK / tickSpacing) * tickSpacing) {
-            return !flipRatio ? 'MIN' : 'MAX';
+            return !flipRatio ? 'MIN' : 'MAX'; // 价格不翻转，返回MIN
         } else if (tick == (TickMath.MAX_TICK / tickSpacing) * tickSpacing) {
-            return !flipRatio ? 'MAX' : 'MIN';
+            return !flipRatio ? 'MAX' : 'MIN'; // 价格不翻转，返回MAX
         } else {
-            uint160 sqrtRatioX96 = TickMath.getSqrtRatioAtTick(tick);
-            if (flipRatio) {
-                sqrtRatioX96 = uint160(uint256(1 << 192).div(sqrtRatioX96));
+            uint160 sqrtRatioX96 = TickMath.getSqrtRatioAtTick(tick); // tick-->根号价格
+            if (flipRatio) { // 如果价格翻转
+                sqrtRatioX96 = uint160(uint256(1 << 192).div(sqrtRatioX96)); // SafeMath.div，此处是计算价格的倒数
             }
+            // 在remix中实测过，返回类似于81.000,121.00,12100,1210000等
             return fixedPointToDecimalString(sqrtRatioX96, baseTokenDecimals, quoteTokenDecimals);
         }
     }
@@ -284,44 +288,51 @@ library NFTDescriptor {
         return (value, extraDigit);
     }
 
+    // 根据quote和base的decimal差值，对根号价格进行相应调整（变大或变小）
     function adjustForDecimalPrecision(
         uint160 sqrtRatioX96,
         uint8 baseTokenDecimals,
         uint8 quoteTokenDecimals
     ) private pure returns (uint256 adjustedSqrtRatioX96) {
-        uint256 difference = abs(int256(baseTokenDecimals).sub(int256(quoteTokenDecimals)));
-        if (difference > 0 && difference <= 18) {
-            if (baseTokenDecimals > quoteTokenDecimals) {
-                adjustedSqrtRatioX96 = sqrtRatioX96.mul(10**(difference.div(2)));
-                if (difference % 2 == 1) {
+        uint256 difference = abs(int256(baseTokenDecimals).sub(int256(quoteTokenDecimals))); // 计算base token和quote token decimal相差多少，取绝对值。此处使用了SignedSafeMath.sub
+        if (difference > 0 && difference <= 18) { // decimal不相等，但相差不超过18
+            if (baseTokenDecimals > quoteTokenDecimals) { // base的decimal比quote多
+                adjustedSqrtRatioX96 = sqrtRatioX96.mul(10**(difference.div(2))); // 根号价格应该变大，difference.div(2)的原因就是因为是根号价格，而不是价格本身，所以10的次方数需要除以2
+                if (difference % 2 == 1) { // 如果除以2不能除尽，还有余数
                     adjustedSqrtRatioX96 = FullMath.mulDiv(adjustedSqrtRatioX96, sqrt10X128, 1 << 128);
                 }
             } else {
-                adjustedSqrtRatioX96 = sqrtRatioX96.div(10**(difference.div(2)));
+                adjustedSqrtRatioX96 = sqrtRatioX96.div(10**(difference.div(2))); // 根号价格应该变小
                 if (difference % 2 == 1) {
                     adjustedSqrtRatioX96 = FullMath.mulDiv(adjustedSqrtRatioX96, 1 << 128, sqrt10X128);
                 }
             }
-        } else {
+        } else { // decimal相等，或者decimal相差超过18
             adjustedSqrtRatioX96 = uint256(sqrtRatioX96);
         }
     }
 
+    // 计算绝对值
     function abs(int256 x) private pure returns (uint256) {
         return uint256(x >= 0 ? x : -x);
     }
 
     // @notice Returns string that includes first 5 significant figures of a decimal number
     // @param sqrtRatioX96 a sqrt price
+    // 经过在remix中实测此函数，输入sqrtRatioX96为713053462628379038341895553024（9左移96位），得到的结果为81.000，十进制，整数和小数加起来总共5位
+    // 输入sqrtRatioX96为871509787656907713528983453696（11左移96位），得到的结果为121.00，十进制，整数和小数加起来总共5位
+    // 输入sqrtRatioX96为8715097876569077135289834536960（110左移96位），得到的结果为12100，十进制，整数已经5位了，所以舍弃小数
+    // 输入sqrtRatioX96为87150978765690771352898345369600（1100左移96位），得到的结果为1210000，十进制，整数已经超过5位了，所以舍弃小数
     function fixedPointToDecimalString(
         uint160 sqrtRatioX96,
         uint8 baseTokenDecimals,
         uint8 quoteTokenDecimals
     ) internal pure returns (string memory) {
+        // 根据quote和base的decimal差值，对根号价格进行相应调整（变大或变小）
         uint256 adjustedSqrtRatioX96 = adjustForDecimalPrecision(sqrtRatioX96, baseTokenDecimals, quoteTokenDecimals);
-        uint256 value = FullMath.mulDiv(adjustedSqrtRatioX96, adjustedSqrtRatioX96, 1 << 64);
+        uint256 value = FullMath.mulDiv(adjustedSqrtRatioX96, adjustedSqrtRatioX96, 1 << 64);//TODO 为什么除以1 << 64,暂时搁置
 
-        bool priceBelow1 = adjustedSqrtRatioX96 < 2**96;
+        bool priceBelow1 = adjustedSqrtRatioX96 < 2**96; // 由于价格是用Q64.96表示，所以2**96表示1,此处判断adjustedSqrtRatioX96是否小于1
         if (priceBelow1) {
             // 10 ** 43 is precision needed to retreive 5 sigfigs of smallest possible price + 1 for rounding
             value = FullMath.mulDiv(value, 10**44, 1 << 128);
@@ -373,7 +384,9 @@ library NFTDescriptor {
     }
 
     // @notice Returns string as decimal percentage of fee amount.
+    // 返回字符串作为fee百分比的小数，比如0.05%,0.3%,1%。
     // @param fee fee amount
+    // fee的取值有三个：500(0.05%),3000(0.3%),10000(1%)
     function feeToPercentString(uint24 fee) internal pure returns (string memory) {
         if (fee == 0) {
             return '0%';
