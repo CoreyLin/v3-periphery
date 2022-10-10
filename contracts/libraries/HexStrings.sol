@@ -2,7 +2,7 @@
 pragma solidity =0.7.6;
 
 library HexStrings {
-    bytes16 internal constant ALPHABET = '0123456789abcdef';
+    bytes16 internal constant ALPHABET = '0123456789abcdef'; // 16个字节
 
     /// @notice Converts a `uint256` to its ASCII `string` hexadecimal representation with fixed length.
     /// @dev Credit to Open Zeppelin under MIT license https://github.com/OpenZeppelin/openzeppelin-contracts/blob/243adff49ce1700e0ecb99fe522fb16cff1d1ddc/contracts/utils/Strings.sol#L55
@@ -21,12 +21,14 @@ library HexStrings {
         return string(buffer);
     }
 
+    // length是字节长度
+    // 把uint256的最右边length个字节转为16进制字符串，16进制字符串的长度为length*2
     function toHexStringNoPrefix(uint256 value, uint256 length) internal pure returns (string memory) {
-        bytes memory buffer = new bytes(2 * length);
+        bytes memory buffer = new bytes(2 * length); // length乘以2,表示字节对应的16进制字符串的长度，比如字节长1,那么16进制字符串长2
         for (uint256 i = buffer.length; i > 0; i--) {
-            buffer[i - 1] = ALPHABET[value & 0xf];
-            value >>= 4;
+            buffer[i - 1] = ALPHABET[value & 0xf]; // i-1就是从buffer.length-1到0. value的最右边4位和0xf（即二进制1111）做位与操作，然后转换为16进制的字母byte
+            value >>= 4; // value右移4位，即一个16进制字符的长度
         }
-        return string(buffer);
+        return string(buffer); // bytes转string
     }
 }

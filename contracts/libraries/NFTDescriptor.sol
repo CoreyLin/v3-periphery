@@ -42,7 +42,7 @@ library NFTDescriptor {
     }
 
     // ERC721 Metadata JSON Schema https://eips.ethereum.org/EIPS/eip-721
-    // 生成的token URI中，包含name,description,image。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全和去中心化，大家才信任
+    // 生成的token URI中，包含name,description,image（NFT SVG图片）。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全和去中心化，大家才信任
     function constructTokenURI(ConstructTokenURIParams memory params) public pure returns (string memory) {
         // 基于NFT token的信息生成name。name定义在ERC721 Metadata JSON Schema中，表示"Identifies the asset to which this NFT represents"
         // 生成ERC721 NFT token的name，包含5个内容：feeTier,quoteTokenSymbol,baseTokenSymbol,头寸价格下限，头寸价格上限
@@ -51,7 +51,7 @@ library NFTDescriptor {
         // 注意：之所以要分开生成partOne和partTwo，是因为如果abi.encodePacked的参数过多，会报Stack too deep的错误，参考
         // https://ethereum.stackexchange.com/questions/120513/abi-encode-stack-too-deep
         string memory descriptionPartOne =
-            generateDescriptionPartOne(//TODO
+            generateDescriptionPartOne(
                 escapeQuotes(params.quoteTokenSymbol),
                 escapeQuotes(params.baseTokenSymbol),
                 addressToString(params.poolAddress)
@@ -66,7 +66,7 @@ library NFTDescriptor {
             );
         // 生成NFT token的image，采用SVG格式
         // Base64.encode出自base64-sol package，用于solidity中的base64编码，链接 https://www.npmjs.com/package/base64-sol/v/1.0.1
-        string memory image = Base64.encode(bytes(generateSVGImage(params)));
+        string memory image = Base64.encode(bytes(generateSVGImage(params))); // generateSVGImage生成NFT SVG图片的所有内容，string类型，string转bytes,再base64编码
 
         // 注意，生成的token URI遵循data URI scheme，data为前缀，是application/json类型，用base64编码，参考
         // https://en.wikipedia.org/wiki/Data_URI_scheme
@@ -87,7 +87,7 @@ library NFTDescriptor {
                                 descriptionPartTwo,
                                 '", "image": "',
                                 'data:image/svg+xml;base64,',
-                                image,
+                                image, // NFT SVG图片所有内容的base64格式
                                 '"}'
                             )
                         )
@@ -165,6 +165,7 @@ library NFTDescriptor {
                     tokenId,
                     '\\n\\n',
                     unicode'⚠️ DISCLAIMER: Due diligence is imperative when assessing this NFT. Make sure token addresses match the expected tokens, as token symbols may be imitated.'
+                    // 免责声明:在访问此NFT时，尽职调查是必要的。确保token地址与预期的token匹配，因为token symbol可能被模仿。
                 )
             );
     }
@@ -185,7 +186,7 @@ library NFTDescriptor {
                     '/',
                     escapeQuotes(params.baseTokenSymbol),
                     ' - ',
-                    tickToDecimalString( // 把tick转换为带小数的价格字符串，比如81.000,121.00,12100,1210000
+                    tickToDecimalString( // 把tick转换为带小数的价格字符串，比如81.000,121.00,12100,1210000。注意：会把tick转化为price字符串，所以展示给用户的是price字符串
                         !params.flipRatio ? params.tickLower : params.tickUpper, // 如果价格不翻转，就取tickLower
                         params.tickSpacing,
                         params.baseTokenDecimals,
@@ -249,6 +250,7 @@ library NFTDescriptor {
     }
 
     // 把tick转换为带小数的价格字符串，比如81.000,121.00,12100,1210000
+    // 注意：会把tick转化为price字符串，所以展示给用户的是price字符串
     function tickToDecimalString(
         int24 tick,
         int24 tickSpacing,
@@ -266,6 +268,7 @@ library NFTDescriptor {
                 sqrtRatioX96 = uint160(uint256(1 << 192).div(sqrtRatioX96)); // SafeMath.div，此处是计算价格的倒数
             }
             // 在remix中实测过，返回类似于81.000,121.00,12100,1210000等
+            // 根号价格-->价格字符串
             return fixedPointToDecimalString(sqrtRatioX96, baseTokenDecimals, quoteTokenDecimals);
         }
     }
@@ -323,6 +326,7 @@ library NFTDescriptor {
     // 输入sqrtRatioX96为871509787656907713528983453696（11左移96位），得到的结果为121.00，十进制，整数和小数加起来总共5位
     // 输入sqrtRatioX96为8715097876569077135289834536960（110左移96位），得到的结果为12100，十进制，整数已经5位了，所以舍弃小数
     // 输入sqrtRatioX96为87150978765690771352898345369600（1100左移96位），得到的结果为1210000，十进制，整数已经超过5位了，所以舍弃小数
+    // 所以，这个方法把根号价格转换为了价格字符串
     function fixedPointToDecimalString(
         uint160 sqrtRatioX96,
         uint8 baseTokenDecimals,
@@ -431,7 +435,9 @@ library NFTDescriptor {
         return generateDecimalString(params);
     }
 
+    // 地址转字符串
     function addressToString(address addr) internal pure returns (string memory) {
+        // address-->uint256-->hex string
         return (uint256(addr)).toHexString(20); // 20代表字节，从最右边算起
     }
 
@@ -447,12 +453,14 @@ library NFTDescriptor {
                 tickLower: params.tickLower,
                 tickUpper: params.tickUpper,
                 tickSpacing: params.tickSpacing,
-                overRange: overRange(params.tickLower, params.tickUpper, params.tickCurrent), // 当前价格是在价格区间内，还是超出了价格区间
+                overRange: overRange(params.tickLower, params.tickUpper, params.tickCurrent), // 当前价格是在价格区间内，还是超出了价格区间。当前tick小于tickLower，返回-1；当前tick大于tickUpper，返回1；当前tick在tickLower和tickUpper范围内，返回0
                 tokenId: params.tokenId,
-                color0: tokenToColorHex(uint256(params.quoteTokenAddress), 136),
-                color1: tokenToColorHex(uint256(params.baseTokenAddress), 136),
-                color2: tokenToColorHex(uint256(params.quoteTokenAddress), 0),
-                color3: tokenToColorHex(uint256(params.baseTokenAddress), 0),
+                color0: tokenToColorHex(uint256(params.quoteTokenAddress), 136), // color0取决于quoteTokenAddress. 先把uint256右移136位，然后把uint256的最右边3个字节转为16进制字符串，16进制字符串的长度固定为6
+                color1: tokenToColorHex(uint256(params.baseTokenAddress), 136), // color1取决于baseTokenAddress
+                color2: tokenToColorHex(uint256(params.quoteTokenAddress), 0), // color2取决于quoteTokenAddress
+                color3: tokenToColorHex(uint256(params.baseTokenAddress), 0), // color3取决于baseTokenAddress
+                // getCircleCoord：获取圆形坐标轴，token地址右移16位，取最右边一个字节，即8位；然后乘以tokenId；再除以255,取余数，余数一定在0到254之间，只有8位
+                // scale: (n-inMn)*(outMx-outMn)/(inMx-inMn)+outMn，再转换为string，此处为(n-0)*(274-16)/(255-0)+16
                 x1: scale(getCircleCoord(uint256(params.quoteTokenAddress), 16, params.tokenId), 0, 255, 16, 274),
                 y1: scale(getCircleCoord(uint256(params.baseTokenAddress), 16, params.tokenId), 0, 255, 100, 484),
                 x2: scale(getCircleCoord(uint256(params.quoteTokenAddress), 32, params.tokenId), 0, 255, 16, 274),
@@ -461,20 +469,21 @@ library NFTDescriptor {
                 y3: scale(getCircleCoord(uint256(params.baseTokenAddress), 48, params.tokenId), 0, 255, 100, 484)
             });
 
-        return NFTSVG.generateSVG(svgParams);
+        return NFTSVG.generateSVG(svgParams); // 生成NFT图片的所有内容
     }
 
+    // 判断当前价格是在价格区间内，还是超出了价格区间
     function overRange(
         int24 tickLower,
         int24 tickUpper,
         int24 tickCurrent
     ) private pure returns (int8) {
         if (tickCurrent < tickLower) {
-            return -1;
+            return -1; // 当前tick小于tickLower，返回-1
         } else if (tickCurrent > tickUpper) {
-            return 1;
+            return 1; // 当前tick大于tickUpper，返回1
         } else {
-            return 0;
+            return 0; // 当前tick在tickLower和tickUpper范围内，返回0
         }
     }
 
@@ -485,22 +494,26 @@ library NFTDescriptor {
         uint256 outMn,
         uint256 outMx
     ) private pure returns (string memory) {
+        // (n-inMn)*(outMx-outMn)/(inMx-inMn)+outMn，再转换为string
         return (n.sub(inMn).mul(outMx.sub(outMn)).div(inMx.sub(inMn)).add(outMn)).toString();
     }
 
     function tokenToColorHex(uint256 token, uint256 offset) internal pure returns (string memory str) {
-        return string((token >> offset).toHexStringNoPrefix(3));
+        return string((token >> offset).toHexStringNoPrefix(3)); // 把uint256的最右边3个字节转为16进制字符串，16进制字符串的长度为6
     }
 
+    // 获取圆形坐标轴
     function getCircleCoord(
         uint256 tokenAddress,
         uint256 offset,
         uint256 tokenId
     ) internal pure returns (uint256) {
+        // token地址右移offset，取最右边一个字节，即8位；然后乘以tokenId；再除以255,取余数，余数一定在0到254之间，只有8位
         return (sliceTokenHex(tokenAddress, offset) * tokenId) % 255;
     }
 
     function sliceTokenHex(uint256 token, uint256 offset) internal pure returns (uint256) {
+        // token地址右移offset，取最右边一个字节，即8位
         return uint256(uint8(token >> offset));
     }
 }

@@ -77,7 +77,7 @@ contract NonfungibleTokenPositionDescriptor is INonfungibleTokenPositionDescript
         (, int24 tick, , , , , ) = pool.slot0(); // pool中当前价格对应的tick
 
         return
-            NFTDescriptor.constructTokenURI(//TODO
+            NFTDescriptor.constructTokenURI( // 生成的token URI中，包含name,description,image（NFT SVG图片）。尤其值得注意的是image，直接以SVG的格式（xml）存储在链上，没有存储在中心化服务器中，这样绝对安全和去中心化，大家才信任
                 NFTDescriptor.ConstructTokenURIParams({
                     tokenId: tokenId, // NFT token id
                     quoteTokenAddress: quoteTokenAddress, // quote token地址，计算价格时作为分子

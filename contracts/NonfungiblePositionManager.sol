@@ -315,30 +315,31 @@ contract NonfungiblePositionManager is
         external
         payable
         override
-        isAuthorizedForToken(params.tokenId)
+        isAuthorizedForToken(params.tokenId) // 检查必须是NFT token的owner或者owner approve的地址
         checkDeadline(params.deadline)
         returns (uint256 amount0, uint256 amount1)
     {
-        require(params.liquidity > 0);
-        Position storage position = _positions[params.tokenId];
+        require(params.liquidity > 0); // 要移除的流动性必须大于0
+        Position storage position = _positions[params.tokenId]; // 获取tokenId对应的头寸
 
-        uint128 positionLiquidity = position.liquidity; // 把storage变量赋值给memory变量，节省gas费
+        uint128 positionLiquidity = position.liquidity; // 把storage变量赋值给栈变量，节省gas费
         require(positionLiquidity >= params.liquidity); // 移除全部流动性或者部分流动性
 
         PoolAddress.PoolKey memory poolKey = _poolIdToPoolKey[position.poolId];
         IUniswapV3Pool pool = IUniswapV3Pool(PoolAddress.computeAddress(factory, poolKey));
-        (amount0, amount1) = pool.burn(position.tickLower, position.tickUpper, params.liquidity); // 从core pool中移除流动性，即burn，也就是说移除掉的token0,token1应该归还给用户
+        // 从core pool中移除流动性，即burn，也就是说移除掉的token0,token1应该归还给用户，返回应该给用户的amount0,amount1
+        (amount0, amount1) = pool.burn(position.tickLower, position.tickUpper, params.liquidity);
 
         // 防止价格滑点过大。移除的L=amount0*amount1，通过同时控制amount0和amount1的最小值，就能把价格滑点控制在一定范围内。
         require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');
 
-        bytes32 positionKey = PositionKey.compute(address(this), position.tickLower, position.tickUpper);
+        bytes32 positionKey = PositionKey.compute(address(this), position.tickLower, position.tickUpper); // positionKey是pool中用于保存position的键
         // this is now updated to the current transaction
         (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(positionKey);
 
         // 移除流动性时，欠用户的token分为两部分：
-        // 1.从core pool中移除的token
-        // 2.赚钱的手续费
+        // 1.从core pool中移除的token，即amount0,amount1
+        // 2.赚取的手续费
         position.tokensOwed0 +=
             uint128(amount0) +
             uint128(
@@ -346,7 +347,7 @@ contract NonfungiblePositionManager is
                     feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
                     positionLiquidity,
                     FixedPoint128.Q128
-                )
+                ) // 每单位流动性赚取的fee*position拥有的所有流动性
             );
         position.tokensOwed1 +=
             uint128(amount1) +
@@ -355,13 +356,14 @@ contract NonfungiblePositionManager is
                     feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128,
                     positionLiquidity,
                     FixedPoint128.Q128
-                )
+                ) // 每单位流动性赚取的fee*position拥有的所有流动性
             );
+        // 以上tokensOwed0,tokensOwed1变多了
 
         position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
         position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
         // subtraction is safe because we checked positionLiquidity is gte params.liquidity
-        position.liquidity = positionLiquidity - params.liquidity;
+        position.liquidity = positionLiquidity - params.liquidity; // 既然移除了流动性，position拥有的所有流动性就应该减少
 
         emit DecreaseLiquidity(params.tokenId, params.liquidity, amount0, amount1);
     }
@@ -372,7 +374,7 @@ contract NonfungiblePositionManager is
         external
         payable
         override
-        isAuthorizedForToken(params.tokenId)
+        isAuthorizedForToken(params.tokenId) // 检查必须是NFT token的owner或者owner approve的地址
         returns (uint256 amount0, uint256 amount1)
     {
         require(params.amount0Max > 0 || params.amount1Max > 0);
@@ -391,7 +393,7 @@ contract NonfungiblePositionManager is
         // core pool中的feeGrowth和NonfungiblePositionManager合约中的feeGrowth很可能已经不同步了，需要触发同步一次
         if (position.liquidity > 0) {
             // collect方法不涉及更新core pool的流动性，所以需要单独调用core pool的burn方法更新一下feeGrowth，这样才能同步给NonfungiblePositionManager，用于计算用户应该收取的手续费
-            pool.burn(position.tickLower, position.tickUpper, 0);
+            pool.burn(position.tickLower, position.tickUpper, 0);//TODO
             (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) =
                 pool.positions(PositionKey.compute(address(this), position.tickLower, position.tickUpper));
 
@@ -423,7 +425,7 @@ contract NonfungiblePositionManager is
 
         // the actual amounts collected are returned
         // 真正的collect最终还是落实到core pool上，调用pool的collect方法，完成交易费的收取
-        (amount0, amount1) = pool.collect(
+        (amount0, amount1) = pool.collect(//TODO
             recipient,
             position.tickLower,
             position.tickUpper,
@@ -433,7 +435,7 @@ contract NonfungiblePositionManager is
 
         // sometimes there will be a few less wei than expected due to rounding down in core, but we just subtract the full amount expected
         // instead of the actual amount so we can burn the token
-        // 由于在core合约中为避免坏账，采取了round down，有时会比预期少一些wei，但我们只是减去预期的全部金额，而不是实际的金额，这样我们才可以burn掉token，因为burn方法中有如下判断
+        // 由于在core合约中为避免坏账，采取了round down，有时会比预期少一些wei，但我们只是减去预期的全部金额，而不是实际发送的金额，这样我们才可以burn掉token，因为burn方法中有如下判断
         // require(position.liquidity == 0 && position.tokensOwed0 == 0 && position.tokensOwed1 == 0, 'Not cleared');
         (position.tokensOwed0, position.tokensOwed1) = (tokensOwed0 - amount0Collect, tokensOwed1 - amount1Collect);
 

@@ -142,8 +142,8 @@ interface INonfungiblePositionManager is
         );
 
     struct DecreaseLiquidityParams {
-        uint256 tokenId;
-        uint128 liquidity;
+        uint256 tokenId; // NFT id
+        uint128 liquidity; // 要移除的流动性
         uint256 amount0Min;
         uint256 amount1Min;
         uint256 deadline;
