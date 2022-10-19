@@ -33,6 +33,7 @@ library PoolAddress {
     /// @param key The PoolKey
     /// @return pool The contract address of the V3 pool
     function computeAddress(address factory, PoolKey memory key) internal pure returns (address pool) {
+        // 这一句很关键，确保了PoolKey的token0和token1必须是排过序的
         require(key.token0 < key.token1);
         pool = address(
             uint256(
