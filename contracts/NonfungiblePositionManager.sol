@@ -374,14 +374,15 @@ contract NonfungiblePositionManager is
         external
         payable
         override
-        isAuthorizedForToken(params.tokenId) // 检查必须是NFT token的owner或者owner approve的地址
+        isAuthorizedForToken(params.tokenId) // 检查必须是NFT token的owner或者owner approve的地址，及LP或者LP approve的其他人
         returns (uint256 amount0, uint256 amount1)
     {
-        require(params.amount0Max > 0 || params.amount1Max > 0);
+        require(params.amount0Max > 0 || params.amount1Max > 0); // 其中至少一个要大于0
         // allow collecting to the nft position manager address with address 0
+        // 如果params.recipient为0地址，则收集到nft position manager address
         address recipient = params.recipient == address(0) ? address(this) : params.recipient;
 
-        Position storage position = _positions[params.tokenId];
+        Position storage position = _positions[params.tokenId]; // 注意是storage，后续要更新
 
         PoolAddress.PoolKey memory poolKey = _poolIdToPoolKey[position.poolId];
 
@@ -397,14 +398,14 @@ contract NonfungiblePositionManager is
             (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) =
                 pool.positions(PositionKey.compute(address(this), position.tickLower, position.tickUpper));
 
-            tokensOwed0 += uint128(
+            tokensOwed0 += uint128( // 把tokensOwed0同步到最新
                 FullMath.mulDiv( // 一个二进制定点数乘以十进制数之后，除以定点数1，得到一个十进制数
                     feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
                     position.liquidity,
                     FixedPoint128.Q128
                 )
             );
-            tokensOwed1 += uint128(
+            tokensOwed1 += uint128( // 把tokensOwed1同步到最新
                 FullMath.mulDiv(
                     feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128,
                     position.liquidity,
@@ -412,11 +413,12 @@ contract NonfungiblePositionManager is
                 )
             );
 
-            position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+            position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128; // 从core pool同步过来
             position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
         }
 
         // compute the arguments to give to the pool#collect method
+        // 计算给pool#collect方法的参数
         (uint128 amount0Collect, uint128 amount1Collect) =
             (
                 params.amount0Max > tokensOwed0 ? tokensOwed0 : params.amount0Max,
@@ -425,7 +427,7 @@ contract NonfungiblePositionManager is
 
         // the actual amounts collected are returned
         // 真正的collect最终还是落实到core pool上，调用pool的collect方法，完成交易费的收取
-        (amount0, amount1) = pool.collect(//TODO
+        (amount0, amount1) = pool.collect( // 收集某个头寸欠其owner的tokens，pool.collect必须由头寸所有者（即NonfungiblePositionManager合约）调用，但recipient参数可以是其他人
             recipient,
             position.tickLower,
             position.tickUpper,
